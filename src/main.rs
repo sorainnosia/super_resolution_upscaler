@@ -22,6 +22,8 @@ use image::{DynamicImage, GenericImageView, ImageBuffer, Rgb};
 use ndarray::Array4;
 use ort::{session::Session, value::Value};
 use std::path::{Path, PathBuf};
+use std::{fs, io};
+use std::time::Duration;
 use std::sync::Arc;
 use anyhow::Result;
 use iced::widget::scrollable::{Direction, Properties};
@@ -870,11 +872,53 @@ fn pad_to_multiple(img: &DynamicImage, multiple: u32) -> Result<(DynamicImage, (
     Ok((DynamicImage::ImageRgb8(padded), (pad_w, pad_h), (pad_r, pad_b)))
 }
 
+/*
 fn download_model(url: &str, path: &str) -> Result<()> {
     std::fs::create_dir_all("./models")?;
     let response = reqwest::blocking::get(url)?;
     let bytes = response.bytes()?;
     std::fs::write(path, bytes)?;
+    Ok(())
+}
+*/
+
+pub fn download_model(url: &str, path_str: &String) -> Result<()> {
+	let path = Path::new(path_str);
+    // Ensure output directory exists (based on `path`, not hardcoded "./models")
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent);
+            //.with_context(|| format!("create_dir_all({})", parent.display()))?;
+    }
+
+    // A blocking client with a timeout and UA (some servers require one)
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(600)) // no infinite hangs
+        .user_agent("image-upscaler/1.0")
+        .build()?;
+        //.context("build reqwest client")?;
+
+    // Start the request
+    let mut resp = client.get(url).send()?;
+        //.with_context(|| format!("GET {}", url))?;
+
+    // Fail early on non-2xx
+    //if !resp.status().is_success() {
+    //    anyhow::bail!("HTTP {} for {}", resp.status(), url);
+    //}
+
+    // Stream to a temp file to avoid leaving a corrupt target on failure
+    let tmp = path.with_extension("part");
+    let mut out = fs::File::create(&tmp)?;
+        //.with_context(|| format!("create {}", tmp.display()))?;
+
+    // Stream: copies using a small internal buffer, not the whole file
+    io::copy(&mut resp, &mut out);
+        //.with_context(|| format!("writing to {}", tmp.display()))?;
+
+    // Finalize atomically
+    fs::rename(&tmp, path);
+        //.with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+
     Ok(())
 }
 
