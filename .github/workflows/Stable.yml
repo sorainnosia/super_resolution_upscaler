@@ -27,6 +27,7 @@ jobs:
           export OPENSSL_INCLUDE_DIR=/usr/include
           export PKG_CONFIG_PATH=usr/lib/x86_64-linux-gnu/pkgconfig
           export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          export ORT_DYLIB_PATH=onnxruntime.dll
           rustup update
       - name: Build
         run: |
@@ -35,6 +36,7 @@ jobs:
           export OPENSSL_INCLUDE_DIR=/usr/include
           export PKG_CONFIG_PATH=usr/lib/x86_64-linux-gnu/pkgconfig
           export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          export ORT_DYLIB_PATH=onnxruntime.dll
           rustup update
           cargo clean 
           cargo build --release --target=x86_64-unknown-linux-gnu 
@@ -59,6 +61,7 @@ jobs:
           export OPENSSL_INCLUDE_DIR=/usr/include
           export OPENSSL_LIB_DIR=/usr/lib/i386-linux-gnu
           export PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig
+          export ORT_DYLIB_PATH=onnxruntime.dll
 
           rustup update
           cargo clean
@@ -91,6 +94,7 @@ jobs:
         run: |
           rustup update
           cargo clean
+          set ORT_DYLIB_PATH=onnxruntime.dll
           cargo build --release
       - name: Upload win-x64
         uses: actions/upload-artifact@v4.3.0
@@ -102,6 +106,7 @@ jobs:
         run: |
           rustup update
           cargo clean
+          set ORT_DYLIB_PATH=onnxruntime.dll
           rustup target install i686-pc-windows-msvc
           cargo build --release --target=i686-pc-windows-msvc
           
