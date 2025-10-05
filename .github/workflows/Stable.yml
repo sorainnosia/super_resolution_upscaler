@@ -1,0 +1,136 @@
+name: Stable
+on: [push]
+
+env:
+  CARGO_NET_GIT_FETCH_WITH_CLI: false
+  GIT_TERMINAL_PROMPT: 0
+  
+jobs:
+  build-linux-x64:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          override: true
+      - uses: ilammy/setup-nasm@v1    
+      - name: Build
+        run: |
+          sudo apt-get install -y gcc-multilib libssl-dev pkg-config 
+          export OPENSSL_DIR=usr/local/ssl 
+          export OPENSSL_INCLUDE_DIR=/usr/include
+          export PKG_CONFIG_PATH=usr/lib/x86_64-linux-gnu/pkgconfig
+          export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          rustup update
+      - name: Build
+        run: |
+          sudo apt-get install -y gcc-multilib libssl-dev pkg-config libglib2.0-dev pkg-config libatk1.0-dev libgtk-3-dev
+          export OPENSSL_DIR=usr/local/ssl 
+          export OPENSSL_INCLUDE_DIR=/usr/include
+          export PKG_CONFIG_PATH=usr/lib/x86_64-linux-gnu/pkgconfig
+          export OPENSSL_LIB_DIR=/usr/lib/x86_64-linux-gnu
+          rustup update
+          cargo clean 
+          cargo build --release --target=x86_64-unknown-linux-gnu 
+          strip target/x86_64-unknown-linux-gnu/release/super_resolution_upscaler 
+          mv target/x86_64-unknown-linux-gnu/release/super_resolution_upscaler target/x86_64-unknown-linux-gnu/release/super_resolution_upscaler_linux_x64
+
+      - name: Upload linux-amd64
+        uses: actions/upload-artifact@v4.3.0
+        with: 
+          name: super_resolution_upscaler_linux_x64
+          path: target/x86_64-unknown-linux-gnu/release/super_resolution_upscaler_linux_x64
+          
+      - name: Build x86
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib pkg-config libssl-dev:i386 zlib1g-dev:i386 libudev-dev:i386
+
+          rustup target install i686-unknown-linux-gnu
+
+          export OPENSSL_DIR=/usr/lib/i386-linux-gnu
+          export OPENSSL_INCLUDE_DIR=/usr/include
+          export OPENSSL_LIB_DIR=/usr/lib/i386-linux-gnu
+          export PKG_CONFIG_PATH=/usr/lib/i386-linux-gnu/pkgconfig
+
+          rustup update
+          cargo clean
+          cargo build --release --target=i686-unknown-linux-gnu
+
+          strip target/i686-unknown-linux-gnu/release/super_resolution_upscaler 
+          mv target/i686-unknown-linux-gnu/release/super_resolution_upscaler target/i686-unknown-linux-gnu/release/super_resolution_upscaler_linux_x86
+
+      - name: Upload linux-x86
+        uses: actions/upload-artifact@v4.3.0
+        with: 
+          name: super_resolution_upscaler_linux_x86
+          path: target/i686-unknown-linux-gnu/release/super_resolution_upscaler_linux_x86
+
+  build-win-x64:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - uses: ilammy/setup-nasm@v1          
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          default: true
+          override: true
+
+      - name: Build
+        run: |
+          rustup update
+          cargo clean
+          cargo build --release
+      - name: Upload win-x64
+        uses: actions/upload-artifact@v4.3.0
+        with: 
+          name: super_resolution_upscaler_win_x64.exe
+          path: target/release/super_resolution_upscaler.exe
+
+      - name: Build
+        run: |
+          rustup update
+          cargo clean
+          rustup target install i686-pc-windows-msvc
+          cargo build --release --target=i686-pc-windows-msvc
+          
+      - name: Upload win-x64
+        uses: actions/upload-artifact@v4.3.0
+        with: 
+          name: super_resolution_upscaler_win_x86.exe
+          path: target/i686-pc-windows-msvc/release/super_resolution_upscaler.exe
+          
+  build-mac-x64:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v1
+      - uses: ilammy/setup-nasm@v1      
+      - name: Install latest rust toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          target: x86_64-apple-darwin
+          default: true
+          override: true
+
+      - name: Build for mac
+        run: rustup update && cargo clean && cargo build --release && strip target/release/super_resolution_upscaler && mv target/release/super_resolution_upscaler target/release/super_resolution_upscaler_mac_x64
+
+      - name: Upload mac-x64
+        uses: actions/upload-artifact@v4.3.0
+        with: 
+          name: super_resolution_upscaler_mac_x64
+          path: target/release/super_resolution_upscaler_mac_x64
