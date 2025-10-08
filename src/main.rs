@@ -70,8 +70,8 @@ enum Message {
     FolderSelected(Option<PathBuf>),
     ModelSelected(ModelInfo),
     PreviewFileSelected(String),
-    Upscale,
-    UpscaleComplete(Result<Vec<UpscaleResult>, String>),
+    Process,
+    ProcessComplete(Result<Vec<ProcessResult>, String>),
     PreviewLoaded(Result<(DynamicImage, PathBuf), String>),
     ZoomIn,
     ZoomOut,
@@ -87,7 +87,7 @@ struct App {
     selected_preview_file: Option<String>,
     before_image: Option<Arc<DynamicImage>>,
     after_image: Option<Arc<DynamicImage>>,
-    upscale_results: Vec<UpscaleResult>,
+    process_results: Vec<ProcessResult>,
     processing: bool,
     status_message: String,
     zoom_level: f32,
@@ -101,9 +101,17 @@ enum InputType {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+enum ModelType {
+    Upscaling,
+    Denoising,
+    Enhancement,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 struct ModelInfo {
     name: String,
     url: String,
+    model_type: ModelType,
     scale: u32,
     window_size: u32,
     description: String,
@@ -112,12 +120,15 @@ struct ModelInfo {
 
 impl std::fmt::Display for ModelInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} - {} ({}x)", self.category, self.description, self.scale)
+        match self.model_type {
+            ModelType::Upscaling => write!(f, "{} - {} ({}x)", self.category, self.description, self.scale),
+            ModelType::Denoising | ModelType::Enhancement => write!(f, "{} - {}", self.category, self.description),
+        }
     }
 }
 
 #[derive(Debug, Clone)]
-struct UpscaleResult {
+struct ProcessResult {
     input_path: PathBuf,
     output_path: PathBuf,
     input_dims: (u32, u32),
@@ -133,61 +144,152 @@ impl Application for App {
 
     fn new(_flags: ()) -> (Self, Command<Message>) {
         let models = vec![
+            // ===== UPSCALING MODELS =====
             ModelInfo {
                 name: "swin2SR-realworld-sr-x4-64-bsrgan-psnr".to_string(),
                 url: "https://huggingface.co/Xenova/swin2SR-realworld-sr-x4-64-bsrgan-psnr/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 4,
                 window_size: 8,
-                description: "Real-world photos (4x) - Best overall quality".to_string(),
+                description: "Real-world photos (4x)".to_string(),
                 category: "Swin2SR".to_string(),
             },
             ModelInfo {
                 name: "swin2SR-classical-sr-x4-64".to_string(),
                 url: "https://huggingface.co/Xenova/swin2SR-classical-sr-x4-64/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 4,
                 window_size: 8,
-                description: "Clean images (4x) - High quality".to_string(),
+                description: "Clean images (4x)".to_string(),
                 category: "Swin2SR".to_string(),
             },
             ModelInfo {
                 name: "swin2SR-lightweight-x2-64".to_string(),
                 url: "https://huggingface.co/Xenova/swin2SR-lightweight-x2-64/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 2,
                 window_size: 8,
-                description: "Lightweight (2x) - Fastest".to_string(),
+                description: "Lightweight (2x)".to_string(),
                 category: "Swin2SR".to_string(),
             },
             ModelInfo {
                 name: "swin2SR-compressed-sr-x4-48".to_string(),
                 url: "https://huggingface.co/Xenova/swin2SR-compressed-sr-x4-48/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 4,
                 window_size: 8,
-                description: "Compressed/JPEG images (4x)".to_string(),
+                description: "Compressed/JPEG (4x)".to_string(),
                 category: "Swin2SR".to_string(),
             },
             ModelInfo {
                 name: "2x_APISR_RRDB_GAN_generator".to_string(),
                 url: "https://huggingface.co/Xenova/2x_APISR_RRDB_GAN_generator-onnx/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 2,
                 window_size: 1,
-                description: "APISR GAN 2x - Excellent for anime/illustrations".to_string(),
+                description: "APISR GAN (2x) Anime".to_string(),
                 category: "APISR".to_string(),
             },
             ModelInfo {
                 name: "4x_APISR_GRL_GAN_generator".to_string(),
                 url: "https://huggingface.co/Xenova/4x_APISR_GRL_GAN_generator-onnx/resolve/main/onnx/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
                 scale: 4,
                 window_size: 1,
-                description: "APISR GAN 4x - High quality for anime/illustrations".to_string(),
+                description: "APISR GAN (4x) Anime".to_string(),
                 category: "APISR".to_string(),
             },
+            
+            // ===== RESTORATION & ENHANCEMENT MODELS (TensorStack) =====
             ModelInfo {
-                name: "SwinIR-realworld-x4".to_string(),
-                url: "https://huggingface.co/rocca/swin-ir-onnx/resolve/main/003_realSR_BSRGAN_DFO_s64w8_SwinIR-M_x4_GAN.onnx".to_string(),
+                name: "SwinIR-Noise".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/SwinIR-Noise/model.onnx".to_string(),
+                model_type: ModelType::Denoising,
+                scale: 1,
+                window_size: 8,
+                description: "Noise reduction".to_string(),
+                category: "SwinIR".to_string(),
+            },
+            ModelInfo {
+                name: "SwinIR-BSRGAN-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/SwinIR-BSRGAN-4x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
                 scale: 4,
                 window_size: 8,
-                description: "SwinIR real-world (4x) - Good for degraded images".to_string(),
+                description: "Real degradations (4x)".to_string(),
                 category: "SwinIR".to_string(),
+            },
+            ModelInfo {
+                name: "BSRGAN-2x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/BSRGAN-2x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 2,
+                window_size: 1,
+                description: "Blind SR (2x)".to_string(),
+                category: "BSRGAN".to_string(),
+            },
+            ModelInfo {
+                name: "RealESRGAN-2x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/RealESRGAN-2x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 2,
+                window_size: 1,
+                description: "Real-world SR (2x)".to_string(),
+                category: "RealESRGAN".to_string(),
+            },
+            ModelInfo {
+                name: "RealESRGAN-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/RealESRGAN-4x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 4,
+                window_size: 1,
+                description: "Real-world SR (4x)".to_string(),
+                category: "RealESRGAN".to_string(),
+            },
+            ModelInfo {
+                name: "RealESR-General-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/RealESR-General-4x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 4,
+                window_size: 1,
+                description: "General purpose (4x)".to_string(),
+                category: "RealESRGAN".to_string(),
+            },
+            ModelInfo {
+                name: "Swin2SR-Classical-2x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/Swin2SR-Classical-2x/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
+                scale: 2,
+                window_size: 8,
+                description: "Classical SR (2x)".to_string(),
+                category: "Swin2SR-TS".to_string(),
+            },
+            ModelInfo {
+                name: "Swin2SR-Classical-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/Swin2SR-Classical-4x/model.onnx".to_string(),
+                model_type: ModelType::Upscaling,
+                scale: 4,
+                window_size: 8,
+                description: "Classical SR (4x)".to_string(),
+                category: "Swin2SR-TS".to_string(),
+            },
+            ModelInfo {
+                name: "UltraSharp-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/UltraSharp-4x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 4,
+                window_size: 1,
+                description: "Ultra sharp details (4x)".to_string(),
+                category: "Custom".to_string(),
+            },
+            ModelInfo {
+                name: "UltraMix-Smooth-4x".to_string(),
+                url: "https://huggingface.co/TensorStack/Upscale-amuse/resolve/main/UltraMix-Smooth-4x/model.onnx".to_string(),
+                model_type: ModelType::Enhancement,
+                scale: 4,
+                window_size: 1,
+                description: "Ultra smooth details (4x)".to_string(),
+                category: "Custom".to_string(),
             },
         ];
 
@@ -201,7 +303,7 @@ impl Application for App {
                 selected_preview_file: None,
                 before_image: None,
                 after_image: None,
-                upscale_results: Vec::new(),
+                process_results: Vec::new(),
                 processing: false,
                 status_message: "Select an image or folder to begin".to_string(),
                 zoom_level: 1.0,
@@ -211,7 +313,7 @@ impl Application for App {
     }
 
     fn title(&self) -> String {
-        "Super-Resolution Upscaler".to_string()
+        "Image Enhancement Tool - Upscaling & Restoration".to_string()
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
@@ -248,7 +350,7 @@ impl Application for App {
                         .and_then(|n| n.to_str())
                         .map(|s| s.to_string());
                     self.after_image = None;
-                    self.upscale_results.clear();
+                    self.process_results.clear();
                     self.status_message = format!("Loaded: {}", path.display());
                     self.zoom_level = 1.0;
                     
@@ -295,7 +397,7 @@ impl Application for App {
                             .map(|s| s.to_string());
                         self.image_files = files.clone();
                         self.after_image = None;
-                        self.upscale_results.clear();
+                        self.process_results.clear();
                         self.status_message = format!("Loaded {} images", self.image_files.len());
                         self.zoom_level = 1.0;
                         
@@ -339,7 +441,7 @@ impl Application for App {
                     Ok((img, path)) => {
                         self.before_image = Some(Arc::new(img));
                         
-                        if let Some(result) = self.upscale_results.iter()
+                        if let Some(result) = self.process_results.iter()
                             .find(|r| r.input_path == path) {
                             if let Ok(after_img) = image::open(&result.output_path) {
                                 self.after_image = Some(Arc::new(after_img));
@@ -351,7 +453,7 @@ impl Application for App {
                     }
                 }
             }
-            Message::Upscale => {
+            Message::Process => {
                 if self.processing || self.image_files.is_empty() {
                     return Command::none();
                 }
@@ -367,23 +469,23 @@ impl Application for App {
                 let files = self.image_files.clone();
                 let output_dir = if self.input_type == InputType::Folder {
                     self.input_path.as_ref()
-                        .map(|p| p.join("upscaled"))
-                        .unwrap_or_else(|| PathBuf::from("./upscaled"))
+                        .map(|p| p.join("processed"))
+                        .unwrap_or_else(|| PathBuf::from("./processed"))
                 } else {
-                    PathBuf::from("./upscaled")
+                    PathBuf::from("./processed")
                 };
                 
                 return Command::perform(
                     process_images(files, model, output_dir),
-                    Message::UpscaleComplete,
+                    Message::ProcessComplete,
                 );
             }
-            Message::UpscaleComplete(result) => {
+            Message::ProcessComplete(result) => {
                 self.processing = false;
                 
                 match result {
                     Ok(results) => {
-                        self.upscale_results = results.clone();
+                        self.process_results = results.clone();
                         self.status_message = format!("Completed {} image(s)", results.len());
                         
                         if let Some(filename) = &self.selected_preview_file {
@@ -418,14 +520,13 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<Message> {
-        // Header section with gradient background
         let header = container(
             column![
-                text("Super-Resolution Upscaler")
+                text("Image Enhancement Tool")
                     .size(16)
                     .font(HEADING_FONT)
                     .style(Color::WHITE),
-                text("AI-powered image enhancement")
+                text("AI-powered upscaling, denoising & restoration")
                     .size(11)
                     .font(BODY_FONT)
                     .style(Color::from_rgba(1.0, 1.0, 1.0, 0.8)),
@@ -435,7 +536,6 @@ impl Application for App {
         .padding([18, 26])
         .style(theme::Container::Custom(Box::new(GradientContainer)));
 
-        // Input Card
         let file_btn = button("Browse File").on_press(Message::BrowseFile).padding(10);
         let folder_btn = button("Browse Folder").on_press(Message::BrowseFolder).padding(10);
         
@@ -457,7 +557,6 @@ impl Application for App {
             ].spacing(0)
         );
 
-        // Settings Card
         let model_picker = pick_list(
             &self.available_models[..],
             self.selected_model.as_ref(),
@@ -465,13 +564,13 @@ impl Application for App {
         )
         .placeholder("Select model");
 
-        let upscale_btn = if self.processing {
+        let process_btn = if self.processing {
             button(text("Processing...").font(HEADING_FONT).size(14))
                 .padding([8, 10])
                 .style(theme::Button::Secondary)
         } else {
-            button(text("Start Upscale").font(HEADING_FONT).size(14))
-                .on_press(Message::Upscale)
+            button(text("Start Processing").font(HEADING_FONT).size(14))
+                .on_press(Message::Process)
                 .padding([8, 10])
                 .style(theme::Button::Primary)
         };
@@ -484,13 +583,12 @@ impl Application for App {
                 model_picker
             ].spacing(10).align_items(Alignment::Center),
             Space::with_height(12),
-            upscale_btn,
+            process_btn,
             Space::with_height(8),
             text(&self.status_message).size(12).style(TEXT_SECONDARY),
         ]
         .spacing(0);
 
-        // File selector for folders
         if self.input_type == InputType::Folder && !self.image_files.is_empty() {
             let filenames: Vec<String> = self.image_files.iter()
                 .filter_map(|p| p.file_name())
@@ -517,7 +615,6 @@ impl Application for App {
 
         let settings_card = card_container(settings_card_content);
 
-        // Zoom controls
         let zoom_controls = row![
             button(text("-").size(18).horizontal_alignment(iced::alignment::Horizontal::Center))
                 .on_press(Message::ZoomOut)
@@ -536,9 +633,9 @@ impl Application for App {
                 .style(theme::Button::Text),
         ]
         .spacing(8)
-        .align_items(Alignment::Center);
+        .align_items(Alignment::Center)
+		.width(Length::FillPortion(1));
 
-        // Preview section with scrollable images
         let preview_card = if let Some(before_img) = &self.before_image {
             let (w, h) = before_img.dimensions();
             let display_w = (w as f32 * self.zoom_level) as u32;
@@ -560,11 +657,11 @@ impl Application for App {
                 .center_x()
                 .center_y()
             )
-			.direction(Direction::Both {
-				vertical: Properties::default(),
-				horizontal: Properties::default(),
-			})
-            .width(Length::Fixed(500.0))
+            .direction(Direction::Both {
+                vertical: Properties::default(),
+                horizontal: Properties::default(),
+            })
+            .width(Length::FillPortion(1))
             .height(Length::Fixed(400.0));
 
             let before_col = column![
@@ -598,11 +695,11 @@ impl Application for App {
                     .center_x()
                     .center_y()
                 )
-				.direction(Direction::Both {
-					vertical: Properties::default(),
-					horizontal: Properties::default(),
-				})
-                .width(Length::Fixed(500.0))
+                .direction(Direction::Both {
+                    vertical: Properties::default(),
+                    horizontal: Properties::default(),
+                })
+                .width(Length::FillPortion(1))
                 .height(Length::Fixed(400.0));
 
                 column![
@@ -618,7 +715,7 @@ impl Application for App {
                 column![
                     text("After").size(16).font(HEADING_FONT).style(TEXT_COLOR),
                     Space::with_height(8),
-                    container(text("Upscale to see result").style(TEXT_SECONDARY))
+                    container(text("Process to see result").style(TEXT_SECONDARY))
                         .width(Length::Fixed(500.0))
                         .height(Length::Fixed(400.0))
                         .center_x()
@@ -626,6 +723,7 @@ impl Application for App {
                 ]
                 .spacing(0)
                 .align_items(Alignment::Center)
+				.width(Length::FillPortion(1))
             };
 
             card_container(
@@ -679,7 +777,6 @@ impl Application for App {
     }
 }
 
-// Helper UI components
 fn section_title(title: &str) -> Element<'static, Message> {
     text(title)
         .size(14)
@@ -696,7 +793,6 @@ fn card_container<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, M
         .into()
 }
 
-// Container styles
 struct BackgroundContainer;
 impl container::StyleSheet for BackgroundContainer {
     type Style = Theme;
@@ -738,12 +834,11 @@ impl container::StyleSheet for GradientContainer {
     }
 }
 
-// Processing functions (unchanged from original)
 async fn process_images(
     files: Vec<PathBuf>,
     model: ModelInfo,
     output_dir: PathBuf,
-) -> Result<Vec<UpscaleResult>, String> {
+) -> Result<Vec<ProcessResult>, String> {
     tokio::task::spawn_blocking(move || {
         ort::init().commit().map_err(|e| e.to_string())?;
         
@@ -768,19 +863,21 @@ fn process_single_image(
     input_path: &Path,
     model: &ModelInfo,
     output_dir: &Path,
-) -> Result<UpscaleResult> {
+) -> Result<ProcessResult> {
     let start = std::time::Instant::now();
     
     let model_path = format!("./models/{}.onnx", model.name);
     if !Path::new(&model_path).exists() {
+        println!("Downloading model: {}", model.name);
         download_model(&model.url, &model_path)?;
+        println!("Model downloaded successfully");
     }
 
     let mut session = Session::builder()?
         .with_optimization_level(ort::session::builder::GraphOptimizationLevel::Level3)?
-		.with_execution_providers([
-             ort::execution_providers::DirectMLExecutionProvider::default().build()
-         ])?
+        .with_execution_providers([
+            ort::execution_providers::DirectMLExecutionProvider::default().build()
+        ])?
         .commit_from_file(&model_path)?;
 
     let img = image::open(input_path)?;
@@ -821,24 +918,31 @@ fn process_single_image(
         output_data.to_vec()
     )?;
 
-    let mut upscaled = postprocess_tensor(output_array)?;
+    let mut final_img = postprocess_tensor(output_array)?;
     
     if pad_r > 0 || pad_b > 0 {
         let target_w = img.dimensions().0 * model.scale;
         let target_h = img.dimensions().1 * model.scale;
-        upscaled = upscaled.crop_imm(0, 0, target_w, target_h);
+        final_img = final_img.crop_imm(0, 0, target_w, target_h);
     }
     
-    let (out_w, out_h) = upscaled.dimensions();
+    let (out_w, out_h) = final_img.dimensions();
 
     let output_filename = input_path.file_stem()
         .and_then(|n| n.to_str())
         .unwrap_or("output");
-    let output_path = output_dir.join(format!("{}_{}x.png", output_filename, model.scale));
     
-    upscaled.save(&output_path)?;
+    let suffix = match model.model_type {
+        ModelType::Upscaling | ModelType::Enhancement if model.scale > 1 => format!("_{}x", model.scale),
+        ModelType::Denoising => "_denoised".to_string(),
+        _ => "_enhanced".to_string(),
+    };
+    
+    let output_path = output_dir.join(format!("{}{}.png", output_filename, suffix));
+    
+    final_img.save(&output_path)?;
 
-    Ok(UpscaleResult {
+    Ok(ProcessResult {
         input_path: input_path.to_path_buf(),
         output_path,
         input_dims: (orig_w, orig_h),
@@ -872,52 +976,33 @@ fn pad_to_multiple(img: &DynamicImage, multiple: u32) -> Result<(DynamicImage, (
     Ok((DynamicImage::ImageRgb8(padded), (pad_w, pad_h), (pad_r, pad_b)))
 }
 
-/*
-fn download_model(url: &str, path: &str) -> Result<()> {
-    std::fs::create_dir_all("./models")?;
-    let response = reqwest::blocking::get(url)?;
-    let bytes = response.bytes()?;
-    std::fs::write(path, bytes)?;
-    Ok(())
-}
-*/
-
-pub fn download_model(url: &str, path_str: &String) -> Result<()> {
-	let path = Path::new(path_str);
-    // Ensure output directory exists (based on `path`, not hardcoded "./models")
+fn download_model(url: &str, path_str: &str) -> Result<()> {
+    let path = Path::new(path_str);
+    
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent);
-            //.with_context(|| format!("create_dir_all({})", parent.display()))?;
+        fs::create_dir_all(parent)?;
     }
 
-    // A blocking client with a timeout and UA (some servers require one)
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(600)) // no infinite hangs
-        .user_agent("image-upscaler/1.0")
+        .timeout(Duration::from_secs(600))
+        .user_agent("image-enhancement-tool/1.0")
         .build()?;
-        //.context("build reqwest client")?;
 
-    // Start the request
+    println!("Downloading from: {}", url);
     let mut resp = client.get(url).send()?;
-        //.with_context(|| format!("GET {}", url))?;
 
-    // Fail early on non-2xx
-    //if !resp.status().is_success() {
-    //    anyhow::bail!("HTTP {} for {}", resp.status(), url);
-    //}
+    if !resp.status().is_success() {
+        return Err(anyhow::anyhow!("HTTP {} for {}", resp.status(), url));
+    }
 
-    // Stream to a temp file to avoid leaving a corrupt target on failure
     let tmp = path.with_extension("part");
     let mut out = fs::File::create(&tmp)?;
-        //.with_context(|| format!("create {}", tmp.display()))?;
 
-    // Stream: copies using a small internal buffer, not the whole file
-    io::copy(&mut resp, &mut out);
-        //.with_context(|| format!("writing to {}", tmp.display()))?;
+    io::copy(&mut resp, &mut out)?;
 
-    // Finalize atomically
-    fs::rename(&tmp, path);
-        //.with_context(|| format!("rename {} -> {}", tmp.display(), path.display()))?;
+    fs::rename(&tmp, path)?;
+    
+    println!("Model saved to: {}", path.display());
 
     Ok(())
 }
