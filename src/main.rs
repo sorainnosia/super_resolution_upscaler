@@ -27,6 +27,8 @@ use std::time::Duration;
 use std::sync::Arc;
 use anyhow::Result;
 use iced::widget::scrollable::{Direction, Properties};
+use std::process::{Command as ProcessCommand, Stdio};
+use std::io::Write;
 
 // Font definitions
 const HEADING_FONT: Font = Font {
@@ -76,6 +78,10 @@ enum Message {
     ZoomIn,
     ZoomOut,
     ResetZoom,
+	BrowseVideo,
+    VideoSelected(Option<PathBuf>),
+    ProcessVideo,
+    VideoProcessComplete(Result<String, String>),
 }
 
 struct App {
@@ -98,6 +104,7 @@ enum InputType {
     None,
     File,
     Folder,
+	Video
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -291,6 +298,24 @@ impl Application for App {
                 description: "Ultra smooth details (4x)".to_string(),
                 category: "Custom".to_string(),
             },
+			ModelInfo {
+				name: "deblurring_nafnet_2025may".to_string(),
+				url: "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx".to_string(),
+				model_type: ModelType::Denoising,
+				scale: 1,
+				window_size: 8,
+				description: "Motion deblur (GoPro)".to_string(),
+				category: "NAFNet".to_string(),
+			},
+			ModelInfo {
+				name: "restormer_denoising_real".to_string(),
+				url: "local".to_string(),
+				model_type: ModelType::Denoising,
+				scale: 1,
+				window_size: 8,
+				description: "Restormer denoising (real)".to_string(),
+				category: "NAFNet".to_string(),
+			}
         ];
 
         (
@@ -317,7 +342,65 @@ impl Application for App {
     }
 
     fn update(&mut self, message: Message) -> Command<Message> {
-        match message {
+		match message {
+				Message::BrowseVideo => {
+				return Command::perform(
+					async {
+						rfd::AsyncFileDialog::new()
+							.add_filter("Videos", &["mp4", "avi", "mkv", "mov", "webm"])
+							.pick_file()
+							.await
+							.map(|f| f.path().to_path_buf())
+					},
+					Message::VideoSelected,
+				);
+			}
+			
+			Message::VideoSelected(path) => {
+				if let Some(path) = path {
+					self.input_path = Some(path.clone());
+					self.input_type = InputType::Video;
+					self.status_message = format!("Video loaded: {}", path.display());
+					self.after_image = None;
+					self.process_results.clear();
+				}
+			}
+			
+			Message::ProcessVideo => {
+				if self.processing || self.input_path.is_none() {
+					return Command::none();
+				}
+				
+				let Some(model) = self.selected_model.clone() else {
+					self.status_message = "No model selected".to_string();
+					return Command::none();
+				};
+				
+				let Some(video_path) = self.input_path.clone() else {
+					return Command::none();
+				};
+				
+				self.processing = true;
+				self.status_message = "Processing video...".to_string();
+				
+				return Command::perform(
+					process_video(video_path, model),
+					Message::VideoProcessComplete,
+				);
+			}
+			
+			Message::VideoProcessComplete(result) => {
+				self.processing = false;
+				
+				match result {
+					Ok(output_path) => {
+						self.status_message = format!("Video saved to: {}", output_path);
+					}
+					Err(e) => {
+						self.status_message = format!("Error: {}", e);
+					}
+				}
+			}
             Message::BrowseFile => {
                 return Command::perform(
                     async {
@@ -539,23 +622,28 @@ impl Application for App {
         let file_btn = button("Browse File").on_press(Message::BrowseFile).padding(10);
         let folder_btn = button("Browse Folder").on_press(Message::BrowseFolder).padding(10);
         
-        let input_card = card_container(
-            column![
-                section_title("Input"),
-                Space::with_height(8),
-                row![
-                    file_btn,
-                    folder_btn,
-                    text(self.input_path.as_ref()
-                        .and_then(|p| p.to_str())
-                        .unwrap_or("No file selected"))
-                        .size(14)
-                        .style(TEXT_SECONDARY)
-                ]
-                .spacing(10)
-                .align_items(Alignment::Center),
-            ].spacing(0)
-        );
+        let video_btn = button("Browse Video")
+			.on_press(Message::BrowseVideo)
+			.padding(10);
+    
+		let input_card = card_container(
+			column![
+				section_title("Input"),
+				Space::with_height(8),
+				row![
+					file_btn,
+					folder_btn,
+					video_btn,  // Add this
+					text(self.input_path.as_ref()
+						.and_then(|p| p.to_str())
+						.unwrap_or("No file selected"))
+						.size(14)
+						.style(TEXT_SECONDARY)
+				]
+				.spacing(10)
+				.align_items(Alignment::Center),
+			].spacing(0)
+		);
 
         let model_picker = pick_list(
             &self.available_models[..],
@@ -565,15 +653,27 @@ impl Application for App {
         .placeholder("Select model");
 
         let process_btn = if self.processing {
-            button(text("Processing...").font(HEADING_FONT).size(14))
-                .padding([8, 10])
-                .style(theme::Button::Secondary)
-        } else {
-            button(text("Start Processing").font(HEADING_FONT).size(14))
-                .on_press(Message::Process)
-                .padding([8, 10])
-                .style(theme::Button::Primary)
-        };
+			button(text("Processing...").font(HEADING_FONT).size(14))
+				.padding([8, 10])
+				.style(theme::Button::Secondary)
+		} else {
+			let btn_text = if self.input_type == InputType::Video {
+				"Process Video"
+			} else {
+				"Start Processing"
+			};
+			
+			let message = if self.input_type == InputType::Video {
+				Message::ProcessVideo
+			} else {
+				Message::Process
+			};
+			
+			button(text(btn_text).font(HEADING_FONT).size(14))
+				.on_press(message)
+				.padding([8, 10])
+				.style(theme::Button::Primary)
+		};
 
         let mut settings_card_content = column![
             section_title("Settings"),
@@ -977,6 +1077,8 @@ fn pad_to_multiple(img: &DynamicImage, multiple: u32) -> Result<(DynamicImage, (
 }
 
 fn download_model(url: &str, path_str: &str) -> Result<()> {
+	if url == "local" { return Ok(()); }
+	
     let path = Path::new(path_str);
     
     if let Some(parent) = path.parent() {
@@ -1039,4 +1141,143 @@ fn postprocess_tensor(tensor: Array4<f32>) -> Result<DynamicImage> {
     }
     
     Ok(DynamicImage::ImageRgb8(img))
+}
+
+async fn process_video(
+    video_path: PathBuf,
+    model: ModelInfo,
+) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || {
+        process_video_blocking(&video_path, &model)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+fn process_video_blocking(
+    video_path: &Path,
+    model: &ModelInfo,
+) -> Result<String, String> {
+    // Create temporary directories
+    let temp_frames = PathBuf::from("./temp_frames");
+    let temp_upscaled = PathBuf::from("./temp_upscaled");
+    
+    std::fs::create_dir_all(&temp_frames).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&temp_upscaled).map_err(|e| e.to_string())?;
+    
+    println!("Extracting frames from video...");
+    
+    // Extract frames using ffmpeg
+    let extract_status = ProcessCommand::new("ffmpeg")
+        .args(&[
+            "-i", video_path.to_str().unwrap(),
+            "-qscale:v", "1",
+            "-qmin", "1",
+            "-qmax", "1",
+            &format!("{}/frame_%06d.png", temp_frames.display())
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Failed to run ffmpeg: {}. Make sure ffmpeg is installed.", e))?;
+    
+    if !extract_status.success() {
+        return Err("Failed to extract frames from video".to_string());
+    }
+    
+    // Get list of extracted frames
+    let mut frame_files: Vec<PathBuf> = std::fs::read_dir(&temp_frames)
+        .map_err(|e| e.to_string())?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("png"))
+        .collect();
+    
+    frame_files.sort();
+    
+    if frame_files.is_empty() {
+        return Err("No frames extracted from video".to_string());
+    }
+    
+    println!("Processing {} frames...", frame_files.len());
+    
+    // Initialize ONNX Runtime
+    ort::init().commit().map_err(|e| e.to_string())?;
+    
+    // Process each frame
+    for (i, frame_path) in frame_files.iter().enumerate() {
+        if i % 10 == 0 {
+            println!("Processing frame {}/{}...", i + 1, frame_files.len());
+        }
+        
+        match process_single_image(frame_path, model, &temp_upscaled) {
+            Ok(_) => {},
+            Err(e) => eprintln!("Error processing frame {}: {}", i, e),
+        }
+    }
+    
+    println!("Reassembling video...");
+    
+    // Get video properties for output
+    let output_path = video_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(format!(
+            "{}_upscaled.mp4",
+            video_path.file_stem().and_then(|s| s.to_str()).unwrap_or("output")
+        ));
+    
+    // Get original FPS
+    let fps_output = ProcessCommand::new("ffprobe")
+        .args(&[
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=r_frame_rate",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path.to_str().unwrap()
+        ])
+        .output()
+        .map_err(|e| format!("Failed to get FPS: {}", e))?;
+    
+    let fps = String::from_utf8_lossy(&fps_output.stdout)
+        .trim()
+        .to_string();
+    
+    let fps = if fps.is_empty() { "30".to_string() } else { fps };
+    
+    // Reassemble video with same FPS
+    let suffix = match model.model_type {
+        ModelType::Upscaling | ModelType::Enhancement if model.scale > 1 => format!("_{}x", model.scale),
+        ModelType::Denoising => "_denoised".to_string(),
+        _ => "_enhanced".to_string(),
+    };
+    
+    let reassemble_status = ProcessCommand::new("ffmpeg")
+        .args(&[
+            "-framerate", &fps,
+            "-i", &format!("{}/frame_%06d{}.png", temp_upscaled.display(), suffix),
+            "-i", video_path.to_str().unwrap(),
+            "-map", "0:v:0",
+            "-map", "1:a:0?",
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-crf", "18",
+            "-c:a", "copy",
+            "-y",
+            output_path.to_str().unwrap()
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|e| format!("Failed to reassemble video: {}", e))?;
+    
+    if !reassemble_status.success() {
+        return Err("Failed to reassemble video".to_string());
+    }
+    
+    // Cleanup temporary files
+    let _ = std::fs::remove_dir_all(&temp_frames);
+    let _ = std::fs::remove_dir_all(&temp_upscaled);
+    
+    Ok(output_path.to_string_lossy().to_string())
 }
