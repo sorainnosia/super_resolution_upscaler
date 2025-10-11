@@ -120,6 +120,7 @@ enum InputType {
 enum ModelType {
     Upscaling,
     Denoising,
+	Deblur,
     Enhancement,
 }
 
@@ -129,6 +130,7 @@ impl std::fmt::Display for ModelType {
             ModelType::Upscaling => write!(f, "Upscaling"),
             ModelType::Denoising => write!(f, "Denoising"),
             ModelType::Enhancement => write!(f, "Enhancement"),
+            ModelType::Deblur => write!(f, "Deblur"),
         }
     }
 }
@@ -166,7 +168,7 @@ impl std::fmt::Display for ModelInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.model_type {
             ModelType::Upscaling => write!(f, "{} - {} ({}x)", self.category, self.description, self.scale),
-            ModelType::Denoising | ModelType::Enhancement => write!(f, "{} - {}", self.category, self.description),
+            ModelType::Denoising | ModelType::Deblur | ModelType::Enhancement => write!(f, "{} - {}", self.category, self.description), 
         }
     }
 }
@@ -415,7 +417,7 @@ impl Application for App {
             ModelInfo {
                 name: "deblurring_nafnet_2025may".to_string(),
                 url: "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx".to_string(),
-                model_type: ModelType::Denoising,
+                model_type: ModelType::Deblur,
                 scale: 1,
                 window_size: 512,
                 description: "Motion deblur (GoPro)".to_string(),
@@ -428,7 +430,7 @@ impl Application for App {
 			ModelInfo {
 				name: "deblurgan_mobilenet".to_string(),
 				url: "local".to_string(),
-				model_type: ModelType::Denoising,
+				model_type: ModelType::Deblur,
 				scale: 1,
 				window_size: 16,
 				description: "Motion deblur (fast)".to_string(),
@@ -943,6 +945,7 @@ impl Application for App {
             ModelType::Upscaling,
             ModelType::Enhancement,
             ModelType::Denoising,
+            ModelType::Deblur,
         ];
         
         let category_picker = pick_list(
@@ -1296,8 +1299,8 @@ fn log_error(message: &str) {
 fn preprocess_image_for_model(img: &DynamicImage, model: &ModelInfo) -> Result<Array4<f32>> {
     let rgb = img.to_rgb8();
     let (w, h) = rgb.dimensions();
-    let mut tensor = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
     
+    // Choose normalization function
     let normalize_fn: Box<dyn Fn(u8) -> f32> = match model.input_norm {
         NormalizationRange::MinusOneOne => {
             log_message(&format!("Input normalization: [-1, 1] for model: {}", model.name));
@@ -1309,45 +1312,132 @@ fn preprocess_image_for_model(img: &DynamicImage, model: &ModelInfo) -> Result<A
         }
     };
     
-    for y in 0..h {
-        for x in 0..w {
-            let p = rgb.get_pixel(x, y);
-            tensor[[0, 0, y as usize, x as usize]] = normalize_fn(p[0]);
-            tensor[[0, 1, y as usize, x as usize]] = normalize_fn(p[1]);
-            tensor[[0, 2, y as usize, x as usize]] = normalize_fn(p[2]);
+    // Create tensor based on format
+    let tensor = match model.tensor_format {
+        TensorFormat::NCHW => {
+            log_message(&format!("Creating NCHW tensor [1, 3, {}, {}]", h, w));
+            let mut tensor = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
+            
+            for y in 0..h {
+                for x in 0..w {
+                    let p = rgb.get_pixel(x, y);
+                    tensor[[0, 0, y as usize, x as usize]] = normalize_fn(p[0]);
+                    tensor[[0, 1, y as usize, x as usize]] = normalize_fn(p[1]);
+                    tensor[[0, 2, y as usize, x as usize]] = normalize_fn(p[2]);
+                }
+            }
+            tensor
         }
+        TensorFormat::NHWC => {
+            log_message(&format!("Creating NHWC tensor [1, {}, {}, 3]", h, w));
+            let mut tensor = Array4::<f32>::zeros((1, h as usize, w as usize, 3));
+            
+            for y in 0..h {
+                for x in 0..w {
+                    let p = rgb.get_pixel(x, y);
+                    tensor[[0, y as usize, x as usize, 0]] = normalize_fn(p[0]);
+                    tensor[[0, y as usize, x as usize, 1]] = normalize_fn(p[1]);
+                    tensor[[0, y as usize, x as usize, 2]] = normalize_fn(p[2]);
+                }
+            }
+            tensor
+        }
+    };
+    
+    // Diagnostic: Check tensor range
+    let shape = tensor.shape();
+    let mut min_val = f32::MAX;
+    let mut max_val = f32::MIN;
+    let mut sum = 0.0;
+    let mut count = 0;
+    
+    for idx in tensor.iter() {
+        min_val = min_val.min(*idx);
+        max_val = max_val.max(*idx);
+        sum += *idx;
+        count += 1;
     }
+    
+    let mean = sum / count as f32;
+    log_message(&format!("🔍 Input tensor - shape: {:?}, range: [{:.4}, {:.4}], mean: {:.4}", 
+        shape, min_val, max_val, mean));
     
     Ok(tensor)
 }
 
-// Update postprocessing function:
+// Enhanced postprocessing that handles both formats
 fn postprocess_tensor_for_model(tensor: Array4<f32>, model: &ModelInfo) -> Result<DynamicImage> {
     let shape = tensor.shape();
-    let (_, _, h, w) = (shape[0], shape[1], shape[2], shape[3]);
-    let mut img = ImageBuffer::new(w as u32, h as u32);
     
+    // Diagnostic: Check output tensor range
+    let mut min_val = f32::MAX;
+    let mut max_val = f32::MIN;
+    let mut sum = 0.0;
+    let mut count = 0;
+    
+    for val in tensor.iter() {
+        if val.is_finite() {
+            min_val = min_val.min(*val);
+            max_val = max_val.max(*val);
+            sum += *val;
+            count += 1;
+        }
+    }
+    
+    let mean = if count > 0 { sum / count as f32 } else { 0.0 };
+    log_message(&format!("🔍 Output tensor - shape: {:?}, range: [{:.4}, {:.4}], mean: {:.4}", 
+        shape, min_val, max_val, mean));
+    
+    // Check for invalid values
+    if !min_val.is_finite() || !max_val.is_finite() {
+        return Err(anyhow::anyhow!("Output tensor contains NaN or Inf values"));
+    }
+    
+    // Choose denormalization function
     let denormalize_fn: Box<dyn Fn(f32) -> u8> = match model.output_norm {
         NormalizationRange::MinusOneOne => {
-            log_message(&format!("Output denormalization: [-1, 1] for model: {}", model.name));
+            log_message("Output denormalization: [-1, 1] → [0, 255]");
             Box::new(|val: f32| ((val + 1.0) * 127.5).clamp(0.0, 255.0) as u8)
         }
         NormalizationRange::ZeroOne => {
-            log_message(&format!("Output denormalization: [0, 1] for model: {}", model.name));
+            log_message("Output denormalization: [0, 1] → [0, 255]");
             Box::new(|val: f32| (val * 255.0).clamp(0.0, 255.0) as u8)
         }
     };
     
-    for y in 0..h {
-        for x in 0..w {
-            let r = denormalize_fn(tensor[[0, 0, y, x]]);
-            let g = denormalize_fn(tensor[[0, 1, y, x]]);
-            let b = denormalize_fn(tensor[[0, 2, y, x]]);
-            img.put_pixel(x as u32, y as u32, Rgb([r, g, b]));
+    // Extract dimensions and create image based on format
+    match model.tensor_format {
+        TensorFormat::NCHW => {
+            let (_, _, h, w) = (shape[0], shape[1], shape[2], shape[3]);
+            log_message(&format!("Postprocessing NCHW: {}x{}", w, h));
+            let mut img = ImageBuffer::new(w as u32, h as u32);
+            
+            for y in 0..h {
+                for x in 0..w {
+                    let r = denormalize_fn(tensor[[0, 0, y, x]]);
+                    let g = denormalize_fn(tensor[[0, 1, y, x]]);
+                    let b = denormalize_fn(tensor[[0, 2, y, x]]);
+                    img.put_pixel(x as u32, y as u32, Rgb([r, g, b]));
+                }
+            }
+            Ok(DynamicImage::ImageRgb8(img))
+        }
+        TensorFormat::NHWC => {
+            let (_, h, w, _) = (shape[0], shape[1], shape[2], shape[3]);
+            log_message(&format!("Postprocessing NHWC: {}x{}", w, h));
+            let mut img = ImageBuffer::new(w as u32, h as u32);
+            
+            for y in 0..h {
+                for x in 0..w {
+                    let r = denormalize_fn(tensor[[0, y, x, 0]]);
+                    let g = denormalize_fn(tensor[[0, y, x, 1]]);
+                    let b = denormalize_fn(tensor[[0, y, x, 2]]);
+                    img.put_pixel(x as u32, y as u32, Rgb([r, g, b]));
+                }
+            }
+            Ok(DynamicImage::ImageRgb8(img))
         }
     }
-    
-    Ok(DynamicImage::ImageRgb8(img))
 }
 
 // IMPROVED: Better error handling in process_single_image
