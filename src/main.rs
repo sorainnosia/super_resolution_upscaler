@@ -133,6 +133,20 @@ impl std::fmt::Display for ModelType {
     }
 }
 
+// Add this enum near ModelType
+#[derive(Debug, Clone, PartialEq)]
+enum TensorFormat {
+    NCHW, // Standard: [batch, channels, height, width]
+    NHWC, // Alternative: [batch, height, width, channels]
+}
+
+// Add these enums near ModelType
+#[derive(Debug, Clone, PartialEq)]
+enum NormalizationRange {
+    ZeroOne,      // [0, 1]
+    MinusOneOne,  // [-1, 1]
+}
+
 #[derive(Debug, Clone, PartialEq)]
 struct ModelInfo {
     name: String,
@@ -142,6 +156,10 @@ struct ModelInfo {
     window_size: u32,
     description: String,
     category: String,
+	tensor_format: TensorFormat, // NEW FIELD
+    input_norm: NormalizationRange,  // NEW: Input normalization
+    output_norm: NormalizationRange,
+	min_dimension: Option<u32>, // NEW: Minimum width/height requirement
 }
 
 impl std::fmt::Display for ModelInfo {
@@ -179,6 +197,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Real-world photos (4x)".to_string(),
                 category: "Swin2SR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "swin2SR-classical-sr-x4-64".to_string(),
@@ -188,6 +210,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Clean images (4x)".to_string(),
                 category: "Swin2SR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "swin2SR-lightweight-x2-64".to_string(),
@@ -197,6 +223,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Lightweight (2x)".to_string(),
                 category: "Swin2SR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "swin2SR-compressed-sr-x4-48".to_string(),
@@ -206,6 +236,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Compressed/JPEG (4x)".to_string(),
                 category: "Swin2SR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "2x_APISR_RRDB_GAN_generator".to_string(),
@@ -215,6 +249,10 @@ impl Application for App {
                 window_size: 1,
                 description: "APISR GAN (2x) Anime".to_string(),
                 category: "APISR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "4x_APISR_GRL_GAN_generator".to_string(),
@@ -224,6 +262,10 @@ impl Application for App {
                 window_size: 1,
                 description: "APISR GAN (4x) Anime".to_string(),
                 category: "APISR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             
             // ===== RESTORATION & ENHANCEMENT MODELS (TensorStack) =====
@@ -235,6 +277,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Noise reduction".to_string(),
                 category: "SwinIR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "SwinIR-BSRGAN-4x".to_string(),
@@ -244,6 +290,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Real degradations (4x)".to_string(),
                 category: "SwinIR".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "BSRGAN-2x".to_string(),
@@ -253,6 +303,10 @@ impl Application for App {
                 window_size: 1,
                 description: "Blind SR (2x)".to_string(),
                 category: "BSRGAN".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "RealESRGAN-2x".to_string(),
@@ -262,6 +316,10 @@ impl Application for App {
                 window_size: 1,
                 description: "Real-world SR (2x)".to_string(),
                 category: "RealESRGAN".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "RealESRGAN-4x".to_string(),
@@ -271,6 +329,10 @@ impl Application for App {
                 window_size: 1,
                 description: "Real-world SR (4x)".to_string(),
                 category: "RealESRGAN".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "RealESR-General-4x".to_string(),
@@ -280,6 +342,10 @@ impl Application for App {
                 window_size: 1,
                 description: "General purpose (4x)".to_string(),
                 category: "RealESRGAN".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "Swin2SR-Classical-2x".to_string(),
@@ -289,6 +355,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Classical SR (2x)".to_string(),
                 category: "Swin2SR-TS".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "Swin2SR-Classical-4x".to_string(),
@@ -298,6 +368,10 @@ impl Application for App {
                 window_size: 8,
                 description: "Classical SR (4x)".to_string(),
                 category: "Swin2SR-TS".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "UltraSharp-4x".to_string(),
@@ -307,6 +381,10 @@ impl Application for App {
                 window_size: 1,
                 description: "Ultra sharp details (4x)".to_string(),
                 category: "Custom".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "UltraMix-Smooth-4x".to_string(),
@@ -316,6 +394,10 @@ impl Application for App {
                 window_size: 1,
                 description: "Ultra smooth details (4x)".to_string(),
                 category: "Custom".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
 			ModelInfo {
                 name: "denoiser".to_string(),
@@ -325,15 +407,23 @@ impl Application for App {
                 window_size: 64,
                 description: "(Train)".to_string(),
                 category: "Denoiser".to_string(),
+				tensor_format: TensorFormat::NHWC,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "deblurring_nafnet_2025may".to_string(),
                 url: "https://huggingface.co/opencv/deblurring_nafnet/resolve/main/deblurring_nafnet_2025may.onnx".to_string(),
                 model_type: ModelType::Denoising,
                 scale: 1,
-                window_size: 64,
+                window_size: 512,
                 description: "Motion deblur (GoPro)".to_string(),
                 category: "NAFNet - Motion deblur".to_string(),
+				tensor_format: TensorFormat::NCHW,							
+				input_norm: NormalizationRange::ZeroOne,  // Input: [-1, 1]
+				output_norm: NormalizationRange::ZeroOne,     // Output: [0, 1]
+				min_dimension: Some(512),
             },
 			ModelInfo {
 				name: "deblurgan_mobilenet".to_string(),
@@ -343,6 +433,10 @@ impl Application for App {
 				window_size: 16,
 				description: "Motion deblur (fast)".to_string(),
 				category: "DeblurGAN-v2".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,  // Input: [-1, 1]
+				output_norm: NormalizationRange::ZeroOne,     // Output: [0, 1] ← FIX
+				min_dimension: None, // No minimum for most models
 			},
             ModelInfo {
                 name: "restormer_deraining".to_string(),
@@ -352,6 +446,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer deraining".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_real".to_string(),
@@ -361,6 +459,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (real)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_defocus_dual".to_string(),
@@ -370,6 +472,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer defocus (dual)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_defocus_single".to_string(),
@@ -379,6 +485,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer defocus (single)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_color_blind".to_string(),
@@ -388,6 +498,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (color blind)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_color_sigma15".to_string(),
@@ -397,6 +511,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (color sigma15)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_color_sigma25".to_string(),
@@ -406,6 +524,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (color sigma25)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_color_sigma50".to_string(),
@@ -415,6 +537,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (color sigma50)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_gray_blind".to_string(),
@@ -424,6 +550,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (gray blind)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_gray_sigma15".to_string(),
@@ -433,6 +563,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (gray sigma15)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_gray_sigma25".to_string(),
@@ -442,6 +576,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (gray sigma25)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             },
             ModelInfo {
                 name: "restormer_denoising_gray_sigma50".to_string(),
@@ -451,6 +589,10 @@ impl Application for App {
                 window_size: 64,
                 description: "Restormer denoising (gray sigma50)".to_string(),
                 category: "NAFNet".to_string(),
+				tensor_format: TensorFormat::NCHW,
+				input_norm: NormalizationRange::ZeroOne,
+				output_norm: NormalizationRange::ZeroOne,
+				min_dimension: None, // No minimum for most models
             }
         ];
 
@@ -1156,17 +1298,15 @@ fn preprocess_image_for_model(img: &DynamicImage, model: &ModelInfo) -> Result<A
     let (w, h) = rgb.dimensions();
     let mut tensor = Array4::<f32>::zeros((1, 3, h as usize, w as usize));
     
-    // Different normalization based on model name (more reliable than category)
-    let use_gan_normalization = model.name.contains("deblurgan") || model.name.contains("deblurring_nafnet");
-    
-    let normalize_fn: Box<dyn Fn(u8) -> f32> = if use_gan_normalization {
-        // Normalize to [-1, 1] for GAN-based models
-        log_message(&format!("Using [-1, 1] normalization for model: {}", model.name));
-        Box::new(|val: u8| (val as f32 / 127.5) - 1.0)
-    } else {
-        // Default [0, 1] normalization for other models
-        log_message(&format!("Using [0, 1] normalization for model: {}", model.name));
-        Box::new(|val: u8| val as f32 / 255.0)
+    let normalize_fn: Box<dyn Fn(u8) -> f32> = match model.input_norm {
+        NormalizationRange::MinusOneOne => {
+            log_message(&format!("Input normalization: [-1, 1] for model: {}", model.name));
+            Box::new(|val: u8| (val as f32 / 127.5) - 1.0)
+        }
+        NormalizationRange::ZeroOne => {
+            log_message(&format!("Input normalization: [0, 1] for model: {}", model.name));
+            Box::new(|val: u8| val as f32 / 255.0)
+        }
     };
     
     for y in 0..h {
@@ -1181,22 +1321,21 @@ fn preprocess_image_for_model(img: &DynamicImage, model: &ModelInfo) -> Result<A
     Ok(tensor)
 }
 
+// Update postprocessing function:
 fn postprocess_tensor_for_model(tensor: Array4<f32>, model: &ModelInfo) -> Result<DynamicImage> {
     let shape = tensor.shape();
     let (_, _, h, w) = (shape[0], shape[1], shape[2], shape[3]);
     let mut img = ImageBuffer::new(w as u32, h as u32);
     
-    // Different denormalization based on model name
-    let use_gan_normalization = model.name.contains("deblurgan") || model.name.contains("deblurring_nafnet");
-    
-    let denormalize_fn: Box<dyn Fn(f32) -> u8> = if use_gan_normalization {
-        // Denormalize from [-1, 1]
-        log_message(&format!("Using [-1, 1] denormalization for model: {}", model.name));
-        Box::new(|val: f32| ((val + 1.0) * 127.5).clamp(0.0, 255.0) as u8)
-    } else {
-        // Default [0, 1] denormalization
-        log_message(&format!("Using [0, 1] denormalization for model: {}", model.name));
-        Box::new(|val: f32| (val * 255.0).clamp(0.0, 255.0) as u8)
+    let denormalize_fn: Box<dyn Fn(f32) -> u8> = match model.output_norm {
+        NormalizationRange::MinusOneOne => {
+            log_message(&format!("Output denormalization: [-1, 1] for model: {}", model.name));
+            Box::new(|val: f32| ((val + 1.0) * 127.5).clamp(0.0, 255.0) as u8)
+        }
+        NormalizationRange::ZeroOne => {
+            log_message(&format!("Output denormalization: [0, 1] for model: {}", model.name));
+            Box::new(|val: f32| (val * 255.0).clamp(0.0, 255.0) as u8)
+        }
     };
     
     for y in 0..h {
@@ -1265,30 +1404,50 @@ fn process_single_image(
     let (orig_w, orig_h) = img.dimensions();
     log_message(&format!("Original image size: {}x{}", orig_w, orig_h));
     
-    const MAX_DIM: u32 = 512;
-    let img = if orig_w > MAX_DIM || orig_h > MAX_DIM {
-        let scale = (MAX_DIM as f32 / orig_w.max(orig_h) as f32).min(1.0);
-        let new_w = (orig_w as f32 * scale) as u32;
-        let new_h = (orig_h as f32 * scale) as u32;
-        log_message(&format!("Resizing to {}x{} (scale: {:.2})", new_w, new_h, scale));
-        img.resize_exact(new_w, new_h, image::imageops::FilterType::Lanczos3)
+    // Apply model-specific minimum dimension requirement
+    let min_dim = model.min_dimension.unwrap_or(0);
+    let max_dim = 512.max(min_dim); // Use at least the minimum, or 512
+    
+    let img = if orig_w > max_dim || orig_h > max_dim || orig_w < min_dim || orig_h < min_dim {
+        // Need to resize - either too large or too small
+        let target_dim = if orig_w < min_dim || orig_h < min_dim {
+            // Too small - upscale to minimum
+            let scale = (min_dim as f32 / orig_w.min(orig_h) as f32).max(1.0);
+            let new_w = (orig_w as f32 * scale) as u32;
+            let new_h = (orig_h as f32 * scale) as u32;
+            log_message(&format!("Image too small, upscaling to {}x{} (scale: {:.2})", new_w, new_h, scale));
+            (new_w, new_h)
+        } else {
+            // Too large - downscale to max_dim
+            let scale = (max_dim as f32 / orig_w.max(orig_h) as f32).min(1.0);
+            let new_w = (orig_w as f32 * scale) as u32;
+            let new_h = (orig_h as f32 * scale) as u32;
+            log_message(&format!("Resizing to {}x{} (scale: {:.2})", new_w, new_h, scale));
+            (new_w, new_h)
+        };
+        
+        img.resize_exact(target_dim.0, target_dim.1, image::imageops::FilterType::Lanczos3)
     } else {
         img
     };
 
     let (padded_img, padded_dims, (pad_r, pad_b)) = if model.window_size > 1 {
-		log_message(&format!("Padding to multiple of {}", model.window_size));
-		pad_to_multiple(&img, model.window_size)?
-	} else {
-		(img.clone(), img.dimensions(), (0, 0))
-	};
+        log_message(&format!("Padding to multiple of {}", model.window_size));
+        pad_to_multiple(&img, model.window_size)?
+    } else {
+        (img.clone(), img.dimensions(), (0, 0))
+    };
 
-	log_message(&format!("Padded dimensions: {}x{} (pad_r: {}, pad_b: {})", 
-		padded_dims.0, padded_dims.1, pad_r, pad_b));
+    log_message(&format!("Padded dimensions: {}x{} (pad_r: {}, pad_b: {})", 
+        padded_dims.0, padded_dims.1, pad_r, pad_b));
+    
+    // Verify dimensions are valid
+    if padded_dims.0 == 0 || padded_dims.1 == 0 {
+        return Err(anyhow::anyhow!("Invalid padded dimensions: {}x{}", padded_dims.0, padded_dims.1));
+    }
 
-	// Log the preprocessing dimensions
-	log_message(&format!("Preprocessing image {}x{} for model: {}", 
-		padded_img.dimensions().0, padded_img.dimensions().1, model.name));
+    log_message(&format!("Preprocessing image {}x{} for model: {}", 
+        padded_img.dimensions().0, padded_img.dimensions().1, model.name));
 
     log_message("Preprocessing image...");
     let input_tensor = preprocess_image_for_model(&padded_img, model).map_err(|e| {
