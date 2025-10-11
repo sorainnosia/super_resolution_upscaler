@@ -12,6 +12,9 @@ anyhow = "1.0"
 reqwest = { version = "0.12", features = ["blocking"] }
 tokio = { version = "1", features = ["full"] }
 rfd = "0.14"
+rayon = "1.0"
+num_cpus = "1.16"
+chrono = "0.4"
 
 [target.'cfg(windows)'.build-dependencies]
 winres = "0.1"
@@ -21,3 +24,4 @@ opt-level = "z"
 lto = true          # Enable link-time optimization
 codegen-units = 1   # Reduce number of codegen units to increase optimizations
 strip = true        # Strip symbols from binary
+
